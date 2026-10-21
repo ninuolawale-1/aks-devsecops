@@ -64,7 +64,7 @@ jobs:
       - name: gosec (fails on high severity)
         working-directory: app
         run: |
-          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          go install github.com/securego/gosec/v2/cmd/gosec@17ad2dd7533fd4c773d916e2bc81446917d593b5
           gosec -severity high -confidence medium \
             -fmt sarif -out ../gosec.sarif -stdout -verbose=text ./...
 
