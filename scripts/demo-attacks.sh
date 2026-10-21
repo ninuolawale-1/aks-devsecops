@@ -84,8 +84,8 @@ for p in allowed-client random-pod; do
   kubectl -n $NS wait --for=jsonpath='{.status.phase}'=Succeeded pod/$p --timeout=30s >/dev/null 2>&1 \
     || kubectl -n $NS wait --for=jsonpath='{.status.phase}'=Failed pod/$p --timeout=30s >/dev/null 2>&1
 done
-A="$(kubectl -n $NS logs allowed-client 2>/dev/null)"
-D="$(kubectl -n $NS logs random-pod 2>/dev/null)"
+A="$(kubectl -n $NS logs allowed-client 2>&1 | tail -1)"
+D="$(kubectl -n $NS logs random-pod 2>&1 | tail -1)"
 [[ "$A" == REACHABLE* ]] && pass "labeled client reached the API  -> $A" || fail "labeled client could not reach the API -> $A"
 [[ "$D" == BLOCKED* ]]  && pass "unlabeled pod was blocked       -> $D" || fail "unlabeled pod reached the API -> $D"
 kubectl -n $NS delete pod allowed-client random-pod --ignore-not-found >/dev/null
@@ -93,8 +93,8 @@ kubectl -n $NS delete pod allowed-client random-pod --ignore-not-found >/dev/nul
 echo
 echo "== 3. Least-privilege RBAC =="
 for check in "create pods -n kube-system" "get secrets -n kube-system" "create clusterrolebinding" "create deployments -n $NS"; do
-  r="$(kubectl auth can-i $check --as=system:serviceaccount:$NS:secure-api 2>/dev/null)"
-  [[ "$r" == "no" ]] && pass "app service account cannot: $check" || fail "app service account CAN: $check"
+  r="$(kubectl auth can-i $check --as=system:serviceaccount:$NS:secure-api 2>&1 | tail -1)"
+  [[ "$r" == no* ]] && pass "app service account cannot: $check" || fail "app service account CAN: $check"
 done
 echo
 echo "Logs in $OUT"
