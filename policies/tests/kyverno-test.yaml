@@ -1,0 +1,81 @@
+# Run (after rendering): kyverno test build/policies/tests
+# Signature verification is NOT tested here (it needs a real registry);
+# scripts/demo-attacks.sh proves that one against the live cluster.
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: guardrail-policies
+policies:
+  - ../kyverno/pod-security.yaml
+  - ../kyverno/image-and-resources.yaml
+resources:
+  - resources/deployments.yaml
+results:
+  # --- the compliant deployment passes everything ---
+  - policy: pod-security-hardening
+    rule: autogen-disallow-privileged
+    resources: [good]
+    kind: Deployment
+    result: pass
+  - policy: pod-security-hardening
+    rule: autogen-require-run-as-non-root
+    resources: [good]
+    kind: Deployment
+    result: pass
+  - policy: pod-security-hardening
+    rule: autogen-require-drop-all-capabilities
+    resources: [good]
+    kind: Deployment
+    result: pass
+  - policy: image-and-resource-rules
+    rule: autogen-restrict-registries
+    resources: [good]
+    kind: Deployment
+    result: pass
+  - policy: image-and-resource-rules
+    rule: autogen-disallow-latest-tag
+    resources: [good]
+    kind: Deployment
+    result: pass
+  - policy: image-and-resource-rules
+    rule: autogen-require-limits
+    resources: [good]
+    kind: Deployment
+    result: pass
+
+  # --- each bad deployment fails the rule it was built to break ---
+  - policy: pod-security-hardening
+    rule: autogen-disallow-privileged
+    resources: [bad-privileged]
+    kind: Deployment
+    result: fail
+  - policy: pod-security-hardening
+    rule: autogen-require-run-as-non-root
+    resources: [bad-root]
+    kind: Deployment
+    result: fail
+  - policy: image-and-resource-rules
+    rule: autogen-restrict-registries
+    resources: [bad-dockerhub-latest]
+    kind: Deployment
+    result: fail
+  - policy: image-and-resource-rules
+    rule: autogen-disallow-latest-tag
+    resources: [bad-dockerhub-latest]
+    kind: Deployment
+    result: fail
+  - policy: image-and-resource-rules
+    rule: autogen-require-limits
+    resources: [bad-no-limits]
+    kind: Deployment
+    result: fail
+  - policy: pod-security-hardening
+    rule: autogen-disallow-host-namespaces-and-paths
+    resources: [bad-hostpath-caps]
+    kind: Deployment
+    result: fail
+  - policy: pod-security-hardening
+    rule: autogen-require-drop-all-capabilities
+    resources: [bad-hostpath-caps]
+    kind: Deployment
+    result: fail

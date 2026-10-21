@@ -1,0 +1,67 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: image-and-resource-rules
+  annotations:
+    policies.kyverno.io/title: Image Source and Resource Limits
+    policies.kyverno.io/category: Best Practices
+    policies.kyverno.io/severity: medium
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: restrict-registries
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces: ["kube-system", "kyverno"]
+      validate:
+        message: "Images must come from the project registry (__ACR_LOGIN_SERVER__)."
+        pattern:
+          spec:
+            =(initContainers):
+              - image: "__ACR_LOGIN_SERVER__/*"
+            containers:
+              - image: "__ACR_LOGIN_SERVER__/*"
+
+    - name: disallow-latest-tag
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces: ["kube-system", "kyverno"]
+      validate:
+        message: "The ':latest' tag (or no tag) is not allowed. Deploy by digest or immutable tag."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest & *:* | *@sha256:*"
+
+    - name: require-limits
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces: ["kube-system", "kyverno"]
+      validate:
+        message: "CPU and memory requests and limits are required."
+        pattern:
+          spec:
+            containers:
+              - resources:
+                  requests:
+                    memory: "?*"
+                    cpu: "?*"
+                  limits:
+                    memory: "?*"
+                    cpu: "?*"

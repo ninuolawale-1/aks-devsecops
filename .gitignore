@@ -1,0 +1,8 @@
+build/
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl.bak
+terraform.tfvars
+*.sarif
+sbom*.json

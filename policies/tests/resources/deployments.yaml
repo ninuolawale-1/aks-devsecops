@@ -1,0 +1,136 @@
+# Test fixtures for `kyverno test`. One compliant Deployment and one per violation.
+# Template shared by all of them, with a single thing changed in each "bad-" one.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: good
+  namespace: secure-app
+spec:
+  selector: { matchLabels: { app: good } }
+  template:
+    metadata: { labels: { app: good } }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
+      containers:
+        - name: app
+          image: __ACR_LOGIN_SERVER__/secure-api@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 64Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-privileged
+  namespace: secure-app
+spec:
+  selector: { matchLabels: { app: bad } }
+  template:
+    metadata: { labels: { app: bad } }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: app
+          image: __ACR_LOGIN_SERVER__/secure-api:1.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: true
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 64Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-root
+  namespace: secure-app
+spec:
+  selector: { matchLabels: { app: bad } }
+  template:
+    metadata: { labels: { app: bad } }
+    spec:
+      containers:
+        - name: app
+          image: __ACR_LOGIN_SERVER__/secure-api:1.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 64Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-dockerhub-latest
+  namespace: secure-app
+spec:
+  selector: { matchLabels: { app: bad } }
+  template:
+    metadata: { labels: { app: bad } }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: app
+          image: nginx:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 64Mi }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-no-limits
+  namespace: secure-app
+spec:
+  selector: { matchLabels: { app: bad } }
+  template:
+    metadata: { labels: { app: bad } }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+      containers:
+        - name: app
+          image: __ACR_LOGIN_SERVER__/secure-api:1.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bad-hostpath-caps
+  namespace: secure-app
+spec:
+  selector: { matchLabels: { app: bad } }
+  template:
+    metadata: { labels: { app: bad } }
+    spec:
+      hostNetwork: true
+      securityContext:
+        runAsNonRoot: true
+      volumes:
+        - name: host
+          hostPath: { path: /etc }
+      containers:
+        - name: app
+          image: __ACR_LOGIN_SERVER__/secure-api:1.0.0
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities: { add: ["NET_ADMIN"] }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 64Mi }

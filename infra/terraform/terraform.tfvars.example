@@ -1,0 +1,10 @@
+az account show --query id -o tsvterraform plan# Copy to terraform.tfvars (which is gitignored) and fill in.
+subscription_id = "00000000-0000-0000-0000-000000000000"
+github_owner    = "your-github-username"
+github_repo     = "aks-devsecops"
+location        = "eastus"
+prefix          = "devsecops"
+
+# Optional: lock the API server to your home IP if you won't deploy from
+# GitHub-hosted runners.
+# api_authorized_ip_ranges = ["203.0.113.10/32"]

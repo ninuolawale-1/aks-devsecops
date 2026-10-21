@@ -1,0 +1,15 @@
+# ClusterIP only: nothing is exposed to the internet. Reach it with
+# `kubectl port-forward` or from a labeled client pod.
+apiVersion: v1
+kind: Service
+metadata:
+  name: secure-api
+  namespace: secure-app
+spec:
+  type: ClusterIP
+  selector:
+    app: secure-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

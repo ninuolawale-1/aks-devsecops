@@ -1,0 +1,15 @@
+# Documented risk acceptances. Every entry needs a reason and an expiry date,
+# so an exception can't quietly become permanent. When it expires, the pipeline
+# fails again and someone has to re-decide.
+misconfigurations:
+  - id: AZU-0041
+    paths:
+      - "infra/terraform/main.tf"
+    statement: >-
+      API server authorized IP ranges are opt-in via var.api_authorized_ip_ranges.
+      GitHub-hosted runners use a large, changing IP pool, so locking the API to
+      fixed CIDRs would break deployments. Compensating controls: local accounts
+      disabled (Entra ID auth only), Azure RBAC scoping the pipeline to one
+      namespace, short-lived OIDC tokens. Long-term fix: self-hosted runner in a
+      VNet + private cluster.
+    expired_at: 2027-06-30

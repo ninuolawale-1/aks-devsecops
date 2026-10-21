@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: secure-app
+resources:
+  - deployment.yaml
+  - service.yaml
+# The pipeline runs:
+#   kustomize edit set image secure-api=<acr>/secure-api@sha256:<digest>
+images:
+  - name: secure-api

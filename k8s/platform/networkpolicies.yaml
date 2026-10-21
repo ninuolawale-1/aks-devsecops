@@ -1,0 +1,79 @@
+# 1) Default deny: no pod in the namespace can send or receive anything
+#    until a more specific policy allows it.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: secure-app
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# 2) Allow DNS lookups to CoreDNS only (needed by almost everything).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: secure-app
+spec:
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+# 3) Allow traffic INTO the API pods on 8080, but only from pods in this
+#    namespace explicitly labeled as clients. Everything else stays denied.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-clients-to-api
+  namespace: secure-app
+spec:
+  podSelector:
+    matchLabels:
+      app: secure-api
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              access: secure-api
+      ports:
+        - protocol: TCP
+          port: 8080
+---
+# 4) The matching egress side: labeled clients may reach the API on 8080.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-client-egress-to-api
+  namespace: secure-app
+spec:
+  podSelector:
+    matchLabels:
+      access: secure-api
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: secure-api
+      ports:
+        - protocol: TCP
+          port: 8080

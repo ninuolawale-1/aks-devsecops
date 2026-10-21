@@ -1,0 +1,32 @@
+# Helm values for Kyverno (chart 3.9.2 / Kyverno v1.19.2).
+#
+# The admission controller verifies cosign signatures stored in our private
+# ACR, so it needs pull access. Instead of a registry password, it uses AKS
+# Workload Identity: the service account is federated to a managed identity
+# that only has AcrPull (see infra/terraform/github_oidc.tf).
+# scripts/bootstrap-cluster.sh fills in __KYVERNO_CLIENT_ID__.
+admissionController:
+  replicas: 1          # use 3 for real HA; 1 keeps the lab on one small node
+  podLabels:
+    azure.workload.identity/use: "true"
+  rbac:
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: "__KYVERNO_CLIENT_ID__"
+
+# Keep the lab small. These controllers aren't needed for this project.
+cleanupController:
+  enabled: false
+reportsController:
+  enabled: true
+backgroundController:
+  enabled: true
+
+# Kyverno must never block its own namespace or the system namespace.
+config:
+  webhooks:
+    namespaceSelector:
+      matchExpressions:
+        - key: kubernetes.io/metadata.name
+          operator: NotIn
+          values: ["kube-system", "kyverno"]

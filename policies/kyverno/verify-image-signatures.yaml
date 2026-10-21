@@ -1,0 +1,56 @@
+# Supply-chain gate at admission time.
+#
+# An image from our ACR is admitted ONLY if:
+#   1. it carries a cosign signature made keylessly by THIS repo's workflow,
+#      running on main (proved via the Sigstore cert + Rekor transparency log), and
+#   2. it carries a signed CycloneDX SBOM attestation from the same workflow.
+#
+# Kyverno also rewrites the tag to the verified digest (mutateDigest), so what
+# runs is byte-for-byte what was signed.
+#
+# __ACR_LOGIN_SERVER__, __GITHUB_OWNER__, __GITHUB_REPO__ are filled in by
+# scripts/render-policies.sh.
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-image-signatures
+  annotations:
+    policies.kyverno.io/title: Verify Image Signatures and SBOM
+    policies.kyverno.io/category: Supply Chain Security
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Enforce
+  webhookTimeoutSeconds: 30
+  background: false
+  rules:
+    - name: require-signature-and-sbom
+      match:
+        any:
+          - resources:
+              kinds: ["Pod"]
+      exclude:
+        any:
+          - resources:
+              namespaces: ["kube-system", "kyverno"]
+      verifyImages:
+        - imageReferences:
+            - "__ACR_LOGIN_SERVER__/*"
+          mutateDigest: true
+          verifyDigest: true
+          required: true
+          attestors:
+            - entries:
+                - keyless:
+                    issuer: "https://token.actions.githubusercontent.com"
+                    subjectRegExp: "^https://github.com/__GITHUB_OWNER__/__GITHUB_REPO__/\\.github/workflows/devsecops\\.yml@refs/heads/main$"
+                    rekor:
+                      url: https://rekor.sigstore.dev
+          attestations:
+            - type: https://cyclonedx.org/bom
+              attestors:
+                - entries:
+                    - keyless:
+                        issuer: "https://token.actions.githubusercontent.com"
+                        subjectRegExp: "^https://github.com/__GITHUB_OWNER__/__GITHUB_REPO__/\\.github/workflows/devsecops\\.yml@refs/heads/main$"
+                        rekor:
+                          url: https://rekor.sigstore.dev

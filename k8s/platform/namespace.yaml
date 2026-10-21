@@ -1,0 +1,11 @@
+# Pod Security Admission "restricted" is a second, built-in layer under Kyverno.
+# If a policy is ever misconfigured, PSA still blocks root/privileged pods.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: secure-app
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

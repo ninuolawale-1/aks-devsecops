@@ -1,0 +1,278 @@
+# DevSecOps pipeline: test -> scan (SAST, deps, IaC, policies) -> build ->
+# scan image -> SBOM -> push -> sign + attest -> verify -> deploy to AKS.
+#
+# Any HIGH or CRITICAL finding fails its job, and `needs:` means nothing
+# downstream (push, sign, deploy) runs. Pull requests run every scan but never
+# touch Azure; only main can push and deploy.
+#
+# Every third-party action is pinned to a full commit SHA (tag in the comment).
+# Tags can be moved by whoever controls the action repo; SHAs can't.
+
+name: devsecops
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: secure-api
+  GO_VERSION: "1.24"
+  TRIVY_VERSION: v0.76.0
+  KYVERNO_VERSION: v1.19.2
+  COSIGN_VERSION: v2.6.1
+
+jobs:
+  # -------------------------------------------------------------------------
+  test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+      - run: go vet ./... && go test -race ./...
+        working-directory: app
+
+  # -------------------------------------------------------------------------
+  sast:
+    name: SAST (gosec + Semgrep)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # upload SARIF to the Security tab
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      # Run gosec from inside the module. (Running it from the repo root on
+      # ./app/... silently scans 0 files because go.mod lives in app/, and the
+      # job "passes" without checking anything.)
+      - name: gosec (fails on high severity)
+        working-directory: app
+        run: |
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.29.0
+          gosec -severity high -confidence medium \
+            -fmt sarif -out ../gosec.sarif -stdout -verbose=text ./...
+
+      - name: Semgrep (fails on ERROR-level findings)
+        run: |
+          pipx install semgrep
+          semgrep scan --config p/golang --config p/secrets \
+            --severity ERROR --error --sarif --output semgrep.sarif app/
+
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: .
+        continue-on-error: true # code scanning needs a public repo or GHAS
+
+  # -------------------------------------------------------------------------
+  dependencies:
+    name: Dependency + secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: govulncheck (only flags vulns in code paths you actually call)
+        uses: golang/govulncheck-action@032d45514ae346b1db93c04b0c90b841c370344f # v1.1.0
+        with:
+          go-version-file: app/go.mod
+          work-dir: app
+
+      - name: Trivy filesystem scan (deps + hardcoded secrets)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+  # -------------------------------------------------------------------------
+  iac:
+    name: IaC scan (Terraform + K8s manifests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Trivy config scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: config
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          trivyignores: .trivyignore.yaml
+          # Test fixtures are deliberately insecure; the baseline Dockerfile
+          # exists only for the CVE comparison and is never built in CI.
+          skip-dirs: policies/tests
+          skip-files: app/Dockerfile.baseline
+
+  # -------------------------------------------------------------------------
+  policy-tests:
+    name: Kyverno policy unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install Kyverno CLI
+        run: |
+          curl -sSLo kyverno.tgz "https://github.com/kyverno/kyverno/releases/download/${KYVERNO_VERSION}/kyverno-cli_${KYVERNO_VERSION}_linux_x86_64.tar.gz"
+          tar xzf kyverno.tgz kyverno && sudo mv kyverno /usr/local/bin/
+      - name: Render and test policies
+        run: |
+          scripts/render-policies.sh "example.azurecr.io" "${{ github.repository_owner }}" "${{ github.event.repository.name }}" build/policies
+          kyverno test build/policies/tests
+
+  # -------------------------------------------------------------------------
+  build:
+    name: Build, scan, SBOM, push, sign
+    needs: [test, sast, dependencies, iac, policy-tests]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # OIDC token for Azure login AND Sigstore keyless signing
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build image (local only)
+        run: |
+          docker buildx build --load \
+            --build-arg VERSION=${GITHUB_SHA::7} \
+            -t local/${IMAGE_NAME}:${GITHUB_SHA} app/
+
+      - name: Trivy image scan (block on HIGH/CRITICAL with a fix available)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: image
+          image-ref: local/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: local/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: cyclonedx-json
+          output-file: sbom.cdx.json
+          upload-artifact: false
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-${{ github.sha }}
+          path: sbom.cdx.json
+
+      # ---- everything below only runs on main ----
+      - name: Azure login (OIDC, no stored secrets)
+        if: github.ref == 'refs/heads/main'
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Push to ACR and capture digest
+        id: push
+        if: github.ref == 'refs/heads/main'
+        run: |
+          az acr login --name "${{ vars.ACR_NAME }}"
+          REGISTRY="${{ vars.ACR_NAME }}.azurecr.io"
+          docker tag local/${IMAGE_NAME}:${GITHUB_SHA} ${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}
+          docker push ${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA}
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' ${REGISTRY}/${IMAGE_NAME}:${GITHUB_SHA} | cut -d@ -f2)
+          echo "image=${REGISTRY}/${IMAGE_NAME}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Pushed ${REGISTRY}/${IMAGE_NAME}@${DIGEST}"
+
+      # Cosign v2.6.x on purpose: v3 stores signatures as OCI 1.1 referrers in
+      # the new bundle format by default, and Kyverno's ClusterPolicy
+      # verifyImages expects the classic .sig/.att layout. Keep signer and
+      # verifier on the same format.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        if: github.ref == 'refs/heads/main'
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - name: Sign image and attest SBOM (keyless)
+        if: github.ref == 'refs/heads/main'
+        env:
+          IMAGE: ${{ steps.push.outputs.image }}
+        run: |
+          # Always sign the DIGEST, never a tag.
+          cosign sign --yes "$IMAGE"
+          cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$IMAGE"
+
+  # -------------------------------------------------------------------------
+  deploy:
+    name: Deploy to AKS
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: production # add required reviewers in repo settings for a manual gate
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      IMAGE: ${{ needs.build.outputs.image }}
+      CERT_IDENTITY: https://github.com/${{ github.repository }}/.github/workflows/devsecops.yml@refs/heads/main
+      CERT_ISSUER: https://token.actions.githubusercontent.com
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Azure login (OIDC)
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3.1.0
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: ${{ env.COSIGN_VERSION }}
+
+      - name: Verify signature + SBOM before deploying (defense in depth)
+        run: |
+          az acr login --name "${{ vars.ACR_NAME }}"
+          cosign verify "$IMAGE" \
+            --certificate-identity "$CERT_IDENTITY" \
+            --certificate-oidc-issuer "$CERT_ISSUER" > /dev/null
+          cosign verify-attestation "$IMAGE" --type cyclonedx \
+            --certificate-identity "$CERT_IDENTITY" \
+            --certificate-oidc-issuer "$CERT_ISSUER" > /dev/null
+          echo "Signature and SBOM attestation verified for $IMAGE"
+
+      - uses: azure/setup-kubectl@bda439f5f36b99b262ebdcd3613869bddb064c8e # v5.2.0
+      - uses: azure/use-kubelogin@0ce7c36141aa27d4934872cf00b0120804c98a29 # v1.3
+        with:
+          kubelogin-version: latest
+
+      - name: Get AKS credentials (Entra ID, no local admin)
+        run: |
+          az aks get-credentials -g "${{ vars.AKS_RESOURCE_GROUP }}" -n "${{ vars.AKS_NAME }}" --overwrite-existing
+          kubelogin convert-kubeconfig -l azurecli
+
+      - name: Deploy pinned digest
+        working-directory: k8s/app
+        run: |
+          kustomize edit set image secure-api="$IMAGE"
+          kubectl apply -k .
+          kubectl -n secure-app rollout status deploy/secure-api --timeout=180s

@@ -1,0 +1,49 @@
+# Least-privilege RBAC inside the cluster.
+#
+# Who can do what:
+#   - You (Terraform caller):   cluster admin via Azure RBAC  (infra/terraform/main.tf)
+#   - GitHub Actions identity:  write ONLY in secure-app via Azure RBAC (github_oidc.tf)
+#   - The app's pods:           NOTHING. No API token is even mounted.
+#   - Read-only auditors:       the Role below, bound to an Entra ID group.
+
+# The app talks to no Kubernetes API, so it gets a dedicated SA with no
+# bindings and token automount turned off.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: secure-api
+  namespace: secure-app
+automountServiceAccountToken: false
+---
+# Read-only view for auditors / on-call. Note: no access to Secrets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: auditor-readonly
+  namespace: secure-app
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/log", "services", "events", "serviceaccounts", "configmaps"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "watch"]
+---
+# Bind it to an Entra ID group. Replace the placeholder with your group's
+# object ID (az ad group create --display-name aks-auditors --mail-nickname aks-auditors).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: auditor-readonly
+  namespace: secure-app
+subjects:
+  - kind: Group
+    apiGroup: rbac.authorization.k8s.io
+    name: "__AUDITOR_GROUP_OBJECT_ID__"
+roleRef:
+  kind: Role
+  name: auditor-readonly
+  apiGroup: rbac.authorization.k8s.io
