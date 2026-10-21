@@ -155,9 +155,9 @@ Each control was tested by attempting the thing it's supposed to prevent, not ju
 
 | Control | Before | After | Validation |
 |---|---|---|---|
-| Code and dependencies | No scanning | SAST, dependency, and secret scans block on high/critical | Seeded findings fail the build |
-| Infrastructure as code | Unreviewed | Trivy config scan on Terraform and manifests; exceptions need a reason and an expiry date | Privileged manifest fails the build |
-| Base image | Full OS image running as root | Distroless, non-root, static binary | Trivy before/after comparison |
+| Code and dependencies | No scanning | SAST, dependency, and secret scans block on high/critical | Removed a `#nosec` exception; SAST failed the PR on a high-severity SSRF finding |
+| Infrastructure as code | Unreviewed | Trivy config scan on Terraform and manifests; exceptions need a reason and an expiry date | Scan passes with one documented, time-limited exception (public API server) |
+| Base image | Full OS image running as root | Distroless, non-root, static binary | 1,912 → 2 CVEs (0 critical/high); 1,380 MB → 15 MB |
 | Image provenance | Anything in the registry can run | Keyless cosign signature + signed SBOM, verified in CI and at admission | Unsigned image in our own ACR is rejected |
 | Workload security | Privileged and root pods allowed | Kyverno + PSA `restricted` | Privileged and hostNetwork pods rejected |
 | Network | Flat; every pod reaches every pod | Default-deny with explicit allows | Unlabeled pod can't reach the API |

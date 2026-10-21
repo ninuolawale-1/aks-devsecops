@@ -1,4 +1,4 @@
-az account show --query id -o tsvterraform plan# Copy to terraform.tfvars (which is gitignored) and fill in.
+# Copy to terraform.tfvars (which is gitignored) and fill in.
 subscription_id = "00000000-0000-0000-0000-000000000000"
 github_owner    = "your-github-username"
 github_repo     = "aks-devsecops"
