@@ -1,7 +1,7 @@
 # BASELINE ONLY - DO NOT DEPLOY.
 # This is the "before" image for the CVE comparison (scripts/compare-cves.sh).
 # It's how a lot of teams start: full OS image, built and run as root.
-FROM golang:1.24
+FROM golang:1.27
 WORKDIR /src
 COPY . .
 RUN go build -o /usr/local/bin/secure-api .

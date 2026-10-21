@@ -9,7 +9,7 @@
 # pulled them, and let Dependabot/Renovate bump the digests. Tags can be moved;
 # digests can't.
 
-FROM golang:1.24 AS build
+FROM golang:1.27 AS build
 WORKDIR /src
 COPY go.mod ./
 RUN go mod download

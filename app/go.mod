@@ -1,3 +1,3 @@
-module github.com/<ninuolawale-1>/aks-devsecops/app
+module github.com/ninuolawale-1/aks-devsecops/app
 
-go 1.24
+go 1.27
