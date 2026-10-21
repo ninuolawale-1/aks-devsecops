@@ -46,6 +46,10 @@ Defined a resource group, an ACR (admin user disabled), a Log Analytics workspac
   }
 ```
 
+**Deployed resources in Azure.** Terraform created everything in `rg-devsecops`. AKS creates and manages the second resource group (`MC_rg-devsecops_...`), which holds the node scale set, virtual network, NSG, and load balancer.
+
+<img width="900" src="images/05-azure-resources.png" alt="Screenshot: Azure portal listing the deployed resources, including the AKS cluster, container registry, managed identities, Log Analytics workspace, and the AKS-managed node resources"/>
+
 ### 2. Replaced Stored Credentials With OIDC Federation
 
 GitHub Actions authenticates to Azure with short-lived OIDC tokens instead of a client secret. The managed identity trusts tokens only from this repo's `main` branch and its `production` environment, so a fork, a feature branch, or another repo can't assume it. The identity can push to one registry and write to one namespace, and nothing else.
@@ -199,7 +203,7 @@ scripts/demo-attacks.sh
 scripts/teardown.sh
 ```
 
-**Requirements:** an Azure subscription with Owner rights (Terraform creates role assignments), Azure CLI, Terraform 1.6+, kubectl, kubelogin, and Helm 3. Docker and Trivy are needed only for `scripts/compare-cves.sh`. The full walkthrough, with troubleshooting, is in [`docs/setup-guide.md`](docs/setup-guide.md).
+**Requirements:** an Azure subscription with Owner rights (Terraform creates role assignments), Azure CLI, Terraform 1.6+, kubectl, kubelogin, and Helm 3. Docker and Trivy are needed only for `scripts/compare-cves.sh`.
 
 ---
 
