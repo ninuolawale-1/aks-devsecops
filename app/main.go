@@ -50,7 +50,7 @@ func securityHeaders(next http.Handler) http.Handler {
 // tests NetworkPolicies using the same signed image (no unsigned debug images).
 func probe(url string) error {
 	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Get(url) // #nosec G107 G704 -- URL is an operator-supplied CLI arg used only for in-cluster probes, never request input
+	resp, err := client.Get(url)
 	if err != nil {
 		return err
 	}
