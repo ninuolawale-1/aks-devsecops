@@ -19,7 +19,7 @@ resource "azurerm_federated_identity_credential" "main_branch" {
   parent_id           = azurerm_user_assigned_identity.github.id
   audience            = ["api://AzureADTokenExchange"]
   issuer              = "https://token.actions.githubusercontent.com"
-  subject             = "repo:${var.github_owner}/${var.github_repo}:ref:refs/heads/main"
+  subject             = "repo:${var.github_owner}@299236858/${var.github_repo}@1427938295:ref:refs/heads/main"
 }
 
 # Jobs that use the "production" GitHub environment (the deploy job).
@@ -30,7 +30,7 @@ resource "azurerm_federated_identity_credential" "production_env" {
   parent_id           = azurerm_user_assigned_identity.github.id
   audience            = ["api://AzureADTokenExchange"]
   issuer              = "https://token.actions.githubusercontent.com"
-  subject             = "repo:${var.github_owner}/${var.github_repo}:environment:production"
+  subject             = "repo:${var.github_owner}@299236858/${var.github_repo}@1427938295:environment:production"
 }
 
 # --- Least-privilege grants for the pipeline identity ----------------------
